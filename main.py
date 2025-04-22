@@ -7,10 +7,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from google import genai
 from dotenv import load_dotenv
-from fpdf import FPDF
 import plotly.express as px
 import plotly.graph_objects as go
 import re
+import io
+import json
 
 # Load environment variables
 load_dotenv()
@@ -22,72 +23,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 42px;
-        font-weight: bold;
-        color: #1E3A8A;
-        margin-bottom: 20px;
-        text-align: center;
-    }
-    .sub-header {
-        font-size: 24px;
-        font-weight: 600;
-        color: #4B5563;
-        margin-bottom: 10px;
-    }
-    .card {
-        background-color: #F9FAFB;
-        border-radius: 10px;
-        padding: 20px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        margin-bottom: 20px;
-    }
-    .score-card {
-        text-align: center;
-        background: linear-gradient(135deg, #a5b4fc 0%, #818cf8 100%);
-        color: white;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    .score-text {
-        font-size: 48px;
-        font-weight: bold;
-    }
-    .grade-text {
-        font-size: 36px;
-        font-weight: bold;
-    }
-    .feedback-section {
-        background-color: #EFF6FF;
-        border-left: 5px solid #3B82F6;
-        padding: 15px;
-        margin: 10px 0;
-        border-radius: 5px;
-    }
-    .improvement-item {
-        background-color: #FEF2F2;
-        border-left: 5px solid #EF4444;
-        padding: 15px;
-        margin: 10px 0;
-        border-radius: 5px;
-    }
-    .strength-item {
-        background-color: #ECFDF5;
-        border-left: 5px solid #10B981;
-        padding: 15px;
-        margin: 10px 0;
-        border-radius: 5px;
-    }
-    .stProgress > div > div > div > div {
-        background-color: #6366F1;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # Function to initialize Gemini client
 @st.cache_resource
@@ -153,7 +88,7 @@ def analyze_pdf_with_gemini(client, text):
                     
                     response = client.models.generate_content(
                         model="gemini-2.0-flash",
-                        contents=chunk_prompt,
+                        contents=chunk_prompt
                     )
                     
                     summaries.append(response.text)
@@ -223,8 +158,9 @@ def analyze_pdf_with_gemini(client, text):
             
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
-                contents=final_prompt,
-            )   
+                contents=final_prompt
+            )
+            
             # Extract JSON from response
             json_match = re.search(r'```json\s*(.*?)\s*```', response.text, re.DOTALL)
             if json_match:
@@ -232,7 +168,6 @@ def analyze_pdf_with_gemini(client, text):
             else:
                 json_string = response.text
             
-            import json
             try:
                 result = json.loads(json_string)
                 return result
@@ -244,65 +179,6 @@ def analyze_pdf_with_gemini(client, text):
     except Exception as e:
         st.error(f"Error analyzing PDF: {e}")
         return None
-
-# Function to create feedback PDF
-def create_feedback_pdf(feedback_data):
-    pdf = FPDF()
-    pdf.add_page()
-    
-    # Set font
-    pdf.set_font("Arial", "B", 16)
-    
-    # Title
-    pdf.cell(0, 10, "Assignment Feedback Report", 0, 1, "C")
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(5)
-    
-    # Basic info
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, f"Title: {feedback_data['title']}", 0, 1)
-    pdf.cell(0, 10, f"Grade: {feedback_data['grade']} ({feedback_data['score']}/100)", 0, 1)
-    pdf.ln(5)
-    
-    # Summary
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "Summary:", 0, 1)
-    pdf.set_font("Arial", "", 10)
-    pdf.multi_cell(0, 10, feedback_data['summary'])
-    pdf.ln(5)
-    
-    # Strengths
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "Strengths:", 0, 1)
-    pdf.set_font("Arial", "", 10)
-    for strength in feedback_data['strengths']:
-        pdf.cell(0, 10, f"• {strength}", 0, 1)
-    pdf.ln(5)
-    
-    # Areas for improvement
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "Areas for Improvement:", 0, 1)
-    pdf.set_font("Arial", "", 10)
-    for area in feedback_data['areas_for_improvement']:
-        pdf.cell(0, 10, f"• {area}", 0, 1)
-    pdf.ln(5)
-    
-    # Category scores
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "Category Scores:", 0, 1)
-    pdf.set_font("Arial", "", 10)
-    for category, score in feedback_data['category_scores'].items():
-        pdf.cell(0, 10, f"{category}: {score}/100", 0, 1)
-    pdf.ln(5)
-    
-    # Detailed feedback
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 10, "Detailed Feedback:", 0, 1)
-    pdf.set_font("Arial", "", 10)
-    pdf.multi_cell(0, 10, feedback_data['detailed_feedback'])
-    
-    # Generate PDF file in memory
-    return pdf.output(dest="S").encode("latin1")
 
 # Function to create markdown report
 def create_markdown_report(feedback_data):
@@ -331,7 +207,7 @@ def create_markdown_report(feedback_data):
 
 # Main application
 def main():
-    st.markdown('<div class="main-header">AI PDF Feedback System</div>', unsafe_allow_html=True)
+    st.title("AI PDF Feedback System")
     
     # Initialize session state
     if 'feedback_data' not in st.session_state:
@@ -341,8 +217,7 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/Plus_symbol.svg/1200px-Plus_symbol.svg.png", width=50)
-        st.markdown("### Upload Assignment")
+        st.header("Upload Assignment")
         
         uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
         
@@ -359,7 +234,7 @@ def main():
                 st.success("PDF uploaded and text extracted successfully!")
                 
                 # Display PDF info
-                st.markdown("### PDF Information")
+                st.subheader("PDF Information")
                 word_count = len(st.session_state.pdf_text.split())
                 st.info(f"Word count: {word_count}")
                 
@@ -374,9 +249,9 @@ def main():
             # Clean up temporary file
             os.unlink(tmp_path)
         
-        st.markdown("---")
-        st.markdown("### About")
-        st.markdown("""
+        st.divider()
+        st.subheader("About")
+        st.write("""
         This AI-powered system analyzes academic assignments and provides comprehensive feedback including grading, strengths, and areas for improvement.
         
         Upload your PDF document and get instant, detailed feedback.
@@ -389,17 +264,12 @@ def main():
         # Title and Grade Display
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown(f"<div class='card'><div class='sub-header'>{feedback_data['title']}</div></div>", unsafe_allow_html=True)
+            st.subheader(feedback_data['title'])
         with col2:
-            st.markdown(f"""
-            <div class='score-card'>
-                <div class='grade-text'>{feedback_data['grade']}</div>
-                <div class='score-text'>{feedback_data['score']}/100</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.metric(label="Grade", value=feedback_data['grade'], delta=f"{feedback_data['score']}/100")
         
         # Category Scores with Charts
-        st.markdown("<div class='sub-header'>Category Scores</div>", unsafe_allow_html=True)
+        st.subheader("Category Scores")
         
         # Prepare data for chart
         categories = list(feedback_data['category_scores'].keys())
@@ -412,9 +282,7 @@ def main():
             r=scores,
             theta=categories,
             fill='toself',
-            name='Assignment Score',
-            line_color='#6366F1',
-            fillcolor='rgba(99, 102, 241, 0.3)'
+            name='Assignment Score'
         ))
         
         fig.update_layout(
@@ -436,77 +304,68 @@ def main():
             x=categories,
             y=scores,
             labels={'x': 'Category', 'y': 'Score'},
-            color=scores,
-            color_continuous_scale='Blues',
             range_y=[0, 100]
         )
         fig_bar.update_layout(
             height=300,
-            margin=dict(l=20, r=20, t=20, b=20),
-            coloraxis_showscale=False
+            margin=dict(l=20, r=20, t=20, b=20)
         )
         
         st.plotly_chart(fig_bar, use_container_width=True)
         
         # Summary
-        st.markdown("<div class='sub-header'>Summary</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='feedback-section'>{feedback_data['summary']}</div>", unsafe_allow_html=True)
+        st.subheader("Summary")
+        st.info(feedback_data['summary'])
         
         # Strengths and Areas for Improvement
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("<div class='sub-header'>Strengths</div>", unsafe_allow_html=True)
+            st.subheader("Strengths")
             for strength in feedback_data['strengths']:
-                st.markdown(f"<div class='strength-item'>{strength}</div>", unsafe_allow_html=True)
+                st.success(strength)
         
         with col2:
-            st.markdown("<div class='sub-header'>Areas for Improvement</div>", unsafe_allow_html=True)
+            st.subheader("Areas for Improvement")
             for area in feedback_data['areas_for_improvement']:
-                st.markdown(f"<div class='improvement-item'>{area}</div>", unsafe_allow_html=True)
+                st.warning(area)
         
         # Detailed Feedback
-        st.markdown("<div class='sub-header'>Detailed Feedback</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='feedback-section'>{feedback_data['detailed_feedback']}</div>", unsafe_allow_html=True)
+        st.subheader("Detailed Feedback")
+        st.write(feedback_data['detailed_feedback'])
         
         # Download options
-        st.markdown("<div class='sub-header'>Download Report</div>", unsafe_allow_html=True)
+        st.subheader("Download Report")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            pdf_bytes = create_feedback_pdf(feedback_data)
-            st.download_button(
-                label="Download as PDF",
-                data=pdf_bytes,
-                file_name="assignment_feedback.pdf",
-                mime="application/pdf"
-            )
-        
-        with col2:
-            md_content = create_markdown_report(feedback_data)
-            st.download_button(
-                label="Download as Markdown",
-                data=md_content,
-                file_name="assignment_feedback.md",
-                mime="text/markdown"
-            )
+        md_content = create_markdown_report(feedback_data)
+        st.download_button(
+            label="Download as Markdown",
+            data=md_content,
+            file_name="assignment_feedback.md",
+            mime="text/markdown"
+        )
     
     else:
         # Display welcome message and instructions
-        st.markdown("""
-        <div class='card'>
-            <h2>Welcome to the AI PDF Feedback System</h2>
-            <p>This system uses advanced AI to analyze academic assignments and provide comprehensive feedback.</p>
-            <p>To get started:</p>
-            <ol>
-                <li>Upload your assignment PDF using the sidebar on the left</li>
-                <li>Click "Analyze Assignment" to generate feedback</li>
-                <li>Review your detailed assessment with scores, strengths, and improvement areas</li>
-                <li>Download your feedback report in PDF or Markdown format</li>
-            </ol>
-        </div>
-        """, unsafe_allow_html=True)
+        st.header("Welcome to the AI PDF Feedback System")
+        st.write("""
+        This system uses advanced AI to analyze academic assignments and provide comprehensive feedback.
         
+        To get started:
+        1. Upload your assignment PDF using the sidebar on the left
+        2. Click "Analyze Assignment" to generate feedback
+        3. Review your detailed assessment with scores, strengths, and improvement areas
+        4. Download your feedback report in Markdown format
+        """)
+        
+        # Sample columns layout
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Step 1")
+            st.write("Upload your PDF assignment")
+        with col2:
+            st.subheader("Step 2")
+            st.write("Get AI-powered feedback")
+
 if __name__ == "__main__":
     main()
