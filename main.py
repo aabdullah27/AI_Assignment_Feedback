@@ -347,25 +347,26 @@ def main():
     
     else:
         # Display welcome message and instructions
-        st.header("Welcome to the AI PDF Feedback System")
+        st.header("📄 Welcome to the AI PDF Feedback System!")
         st.write("""
-        This system uses advanced AI to analyze academic assignments and provide comprehensive feedback.
+        🧠 This tool uses AI to analyze your academic assignments and give smart, actionable feedback.
+
+        **Get Started in 4 Easy Steps:**
         
-        To get started:
-        1. Upload your assignment PDF using the sidebar on the left
-        2. Click "Analyze Assignment" to generate feedback
-        3. Review your detailed assessment with scores, strengths, and improvement areas
-        4. Download your feedback report in Markdown format
+        1️⃣ Upload your assignment PDF from the sidebar  
+        2️⃣ Click **Analyze Assignment**  
+        3️⃣ Get detailed scores, strengths & improvement tips  
+        4️⃣ Download your feedback in 📄 Markdown format
         """)
-        
+
         # Sample columns layout
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("Step 1")
-            st.write("Upload your PDF assignment")
+            st.subheader("📤 Step 1")
+            st.write("Upload your assignment PDF")
         with col2:
-            st.subheader("Step 2")
-            st.write("Get AI-powered feedback")
+            st.subheader("⚙️ Step 2")
+            st.write("Click to analyze & receive AI feedback")
 
 if __name__ == "__main__":
     main()
