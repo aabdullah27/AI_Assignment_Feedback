@@ -265,31 +265,101 @@ class ReportGenerator:
                 st.metric(label=category, value=f"{score}/100")
                 st.progress(score/100)
         
-        # Create radar chart with Plotly
-        fig = go.Figure()
+        # Visualization options
+        viz_type = st.radio("Select Visualization Type:", 
+                           ["Bar Chart", "Pie Chart"], 
+                           horizontal=True)
         
-        fig.add_trace(go.Scatterpolar(
-            r=scores,
-            theta=categories,
-            fill='toself',
-            name='Assignment Score',
-            line=dict(color='rgba(32, 156, 238, 0.8)', width=2),
-            fillcolor='rgba(32, 156, 238, 0.3)'
-        ))
-        
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
+        if viz_type == "Bar Chart":
+            # Create bar chart with Plotly
+            fig = go.Figure()
+            
+            fig.add_trace(go.Bar(
+                x=categories,
+                y=scores,
+                marker=dict(
+                    color='rgba(32, 156, 238, 0.8)',
+                    line=dict(color='rgba(32, 156, 238, 1.0)', width=1)
+                ),
+                text=scores,
+                textposition='auto'
+            ))
+            
+            fig.update_layout(
+                title="Category Performance",
+                yaxis=dict(
+                    title="Score",
                     range=[0, 100]
-                )
-            ),
-            showlegend=False,
-            height=400,
-            margin=dict(l=80, r=80, t=20, b=20)
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
+                ),
+                xaxis_title="Categories",
+                height=400,
+                margin=dict(l=20, r=20, t=40, b=20),
+                plot_bgcolor='rgba(0,0,0,0.02)'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+        else:  # Pie Chart
+            # Calculate percentages for better pie chart representation
+            total = sum(scores)
+            percentages = [score/total * 100 for score in scores]
+            
+            # Create pie chart with Plotly
+            fig = go.Figure()
+            
+            fig.add_trace(go.Pie(
+                labels=categories,
+                values=scores,
+                textinfo='label+percent',
+                insidetextorientation='radial',
+                marker=dict(
+                    line=dict(color='#FFFFFF', width=1)
+                ),
+                pull=[0.05 if score == max(scores) else 0 for score in scores]  # Pull out the highest score slice
+            ))
+            
+            fig.update_layout(
+                title="Score Distribution by Category",
+                height=400,
+                margin=dict(l=20, r=20, t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=0, xanchor="center", x=0.5)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Add score comparison chart (horizontal bar)
+            fig = go.Figure()
+            
+            # Sort categories and scores for better visualization
+            sorted_pairs = sorted(zip(categories, scores), key=lambda x: x[1])
+            sorted_categories, sorted_scores = zip(*sorted_pairs)
+            
+            fig.add_trace(go.Bar(
+                y=sorted_categories,
+                x=sorted_scores,
+                orientation='h',
+                marker=dict(
+                    color=['rgba(255,80,80,0.7)' if score < 60 else 
+                           'rgba(255,200,0,0.7)' if score < 75 else 
+                           'rgba(46,204,113,0.7)' for score in sorted_scores],
+                    line=dict(width=1)
+                ),
+                text=[f"{score}/100" for score in sorted_scores],
+                textposition='auto'
+            ))
+            
+            fig.update_layout(
+                title="Performance Comparison",
+                xaxis=dict(
+                    title="Score",
+                    range=[0, 100]
+                ),
+                height=300,
+                margin=dict(l=20, r=20, t=40, b=20),
+                plot_bgcolor='rgba(0,0,0,0.02)'
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
         
         # Detailed Feedback
         st.subheader("Detailed Feedback")
