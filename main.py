@@ -5,184 +5,200 @@ import time
 import pymupdf4llm
 import pandas as pd
 import matplotlib.pyplot as plt
-from google import genai
-from dotenv import load_dotenv
 import plotly.express as px
 import plotly.graph_objects as go
 import re
 import io
 import json
+import pathlib
+import httpx
+from google import genai
+from dotenv import load_dotenv
+
+# Import prompts from separate file
+from assets.prompt import (
+    LONG_CHUNK_ANALYSIS_PROMPT, 
+    SHORT_DOCUMENT_ANALYSIS_PROMPT,
+    FINAL_ASSESSMENT_PROMPT,
+    FILE_API_ANALYSIS_PROMPT
+)
 
 # Load environment variables
 load_dotenv()
 
-# Configure page
-st.set_page_config(
-    page_title="AI PDF Feedback System",
-    page_icon="📝",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Function to initialize Gemini client
-@st.cache_resource
-def initialize_gemini_client():
-    api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", None)
-    if not api_key:
-        st.error("No Gemini API key found. Please set it in .env file or Streamlit secrets.")
-        st.stop()
-    return genai.Client(api_key=api_key)
-
-# Function to extract text from PDF
-def extract_text_from_pdf(file_path):
-    try:
-        with st.spinner("Extracting text from PDF..."):
+class PDFProcessor:
+    """Handles all PDF processing functionality"""
+    
+    @staticmethod
+    def extract_text_from_pdf(file_path):
+        """Extract text from PDF using pymupdf4llm"""
+        try:
             md_text = pymupdf4llm.to_markdown(file_path)
             return md_text
-    except Exception as e:
-        st.error(f"Error extracting text from PDF: {e}")
-        return None
-
-# Function to chunk text for long PDFs
-def chunk_text(text, max_chunk_size=8000):
-    words = text.split()
-    chunks = []
-    current_chunk = []
-    current_size = 0
+        except Exception as e:
+            st.error(f"Error extracting text from PDF: {e}")
+            return None
     
-    for word in words:
-        if current_size + len(word) + 1 > max_chunk_size:
-            chunks.append(" ".join(current_chunk))
-            current_chunk = [word]
-            current_size = len(word)
-        else:
-            current_chunk.append(word)
-            current_size += len(word) + 1  # +1 for the space
-            
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
+    @staticmethod
+    def chunk_text(text, max_chunk_size=8000):
+        """Split text into manageable chunks for processing"""
+        words = text.split()
+        chunks = []
+        current_chunk = []
+        current_size = 0
         
-    return chunks
-
-# Function to analyze PDF with Gemini
-def analyze_pdf_with_gemini(client, text):
-    try:
-        with st.spinner("AI is analyzing your document..."):
-            # For long documents, chunk and analyze separately
-            if len(text) > 30000:
-                st.info("Document is large. Processing in chunks...")
-                chunks = chunk_text(text)
-                summaries = []
-                
-                progress_bar = st.progress(0)
-                for i, chunk in enumerate(chunks):
-                    progress_bar.progress((i+1)/len(chunks))
-                    
-                    chunk_prompt = f"""
-                    Analyze this portion of an academic paper or assignment:
-                    
-                    {chunk}
-                    
-                    Extract key points, strengths, and weaknesses from this section.
-                    """
-                    
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash",
-                        contents=chunk_prompt
-                    )
-                    
-                    summaries.append(response.text)
-                
-                combined_summary = "\n\n".join(summaries)
-                
-                # Final analysis of the combined summaries
-                final_prompt = f"""
-                You are an expert academic assessor. Below are summaries from different parts of a student assignment.
-                
-                {combined_summary}
-                
-                Based on these summaries, provide a comprehensive assessment in the following JSON format:
-                
-                ```json
-                {{
-                    "title": "Assessment Title",
-                    "grade": "Letter grade (A+, A, A-, B+, etc.)",
-                    "score": A number between 0 and 100,
-                    "summary": "One paragraph summary of the work",
-                    "strengths": ["Strength 1", "Strength 2", "Strength 3"],
-                    "areas_for_improvement": ["Area 1", "Area 2", "Area 3"],
-                    "detailed_feedback": "Comprehensive feedback in 3-4 paragraphs",
-                    "category_scores": {{
-                        "Content": Score between 0 and 100,
-                        "Structure": Score between 0 and 100,
-                        "Analysis": Score between 0 and 100,
-                        "Language": Score between 0 and 100,
-                        "References": Score between 0 and 100
-                    }}
-                }}
-                ```
-                
-                Ensure your assessment is fair, constructive, and specific to help the student improve.
-                """
-                
+        for word in words:
+            if current_size + len(word) + 1 > max_chunk_size:
+                chunks.append(" ".join(current_chunk))
+                current_chunk = [word]
+                current_size = len(word)
             else:
-                # For shorter documents, analyze directly
-                final_prompt = f"""
-                You are an expert academic assessor. Carefully analyze this student assignment:
+                current_chunk.append(word)
+                current_size += len(word) + 1  # +1 for the space
                 
-                {text}
-                
-                Provide a comprehensive assessment in the following JSON format:
-                
-                ```json
-                {{
-                    "title": "Assessment Title",
-                    "grade": "Letter grade (A+, A, A-, B+, etc.)",
-                    "score": A number between 0 and 100,
-                    "summary": "One paragraph summary of the work",
-                    "strengths": ["Strength 1", "Strength 2", "Strength 3"],
-                    "areas_for_improvement": ["Area 1", "Area 2", "Area 3"],
-                    "detailed_feedback": "Comprehensive feedback in 3-4 paragraphs",
-                    "category_scores": {{
-                        "Content": Score between 0 and 100,
-                        "Structure": Score between 0 and 100,
-                        "Analysis": Score between 0 and 100,
-                        "Language": Score between 0 and 100,
-                        "References": Score between 0 and 100
-                    }}
-                }}
-                ```
-                
-                Ensure your assessment is fair, constructive, and specific to help the student improve.
-                """
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
             
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=final_prompt
+        return chunks
+
+
+class GeminiProcessor:
+    """Handles all Gemini AI processing"""
+    
+    def __init__(self):
+        """Initialize Gemini client"""
+        self.client = self._initialize_client()
+        
+    def _initialize_client(self):
+        """Initialize and return Gemini client"""
+        api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", None)
+        if not api_key:
+            st.error("No Gemini API key found. Please set it in .env file or Streamlit secrets.")
+            st.stop()
+        return genai.Client(api_key=api_key)
+    
+    def analyze_with_extracted_text(self, assignment_text, requirements_text=None):
+        """Analyze PDF with Gemini using extracted text"""
+        try:
+            with st.spinner("Analyzing", show_time=True):
+                # For long documents, chunk and analyze separately
+                if len(assignment_text) > 30000:
+                    return self._analyze_long_document(assignment_text, requirements_text)
+                else:
+                    # For shorter documents, analyze directly
+                    return self._analyze_short_document(assignment_text, requirements_text)
+                    
+        except Exception as e:
+            st.error(f"Error analyzing assignment: {e}")
+            return None
+    
+    def _analyze_long_document(self, assignment_text, requirements_text=None):
+        """Process long documents by chunking"""
+        st.info("Document is large. Processing in chunks...")
+        chunks = PDFProcessor.chunk_text(assignment_text)
+        summaries = []
+        
+        progress_bar = st.progress(0)
+        for i, chunk in enumerate(chunks):
+            progress_bar.progress((i+1)/len(chunks))
+            
+            # Format the prompt with requirements if available
+            prompt = LONG_CHUNK_ANALYSIS_PROMPT.format(
+                requirements_context=f"The assignment is based on these requirements/questions:\n\n{requirements_text}\n\nWith the above requirements in mind, analyze this portion of the student's assignment:" if requirements_text else "Analyze this portion of an academic assignment:",
+                chunk=chunk
             )
             
-            # Extract JSON from response
-            json_match = re.search(r'```json\s*(.*?)\s*```', response.text, re.DOTALL)
-            if json_match:
-                json_string = json_match.group(1)
-            else:
-                json_string = response.text
+            response = self.client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt
+            )
             
-            try:
-                result = json.loads(json_string)
-                return result
-            except json.JSONDecodeError:
-                st.error("Error parsing AI response. Please try again.")
-                st.code(response.text)
-                return None
+            summaries.append(response.text)
+        
+        combined_summary = "\n\n".join(summaries)
+        
+        # Final analysis of the combined summaries
+        return self._generate_final_assessment(combined_summary, requirements_text)
+    
+    def _analyze_short_document(self, assignment_text, requirements_text=None):
+        """Process shorter documents directly"""
+        # Format the prompt with requirements if available
+        prompt = SHORT_DOCUMENT_ANALYSIS_PROMPT.format(
+            requirements_context=f"The assignment is based on these requirements/questions:\n\n{requirements_text}\n\nWith the above requirements in mind, analyze this student assignment:" if requirements_text else "Analyze this student assignment:",
+            assignment_text=assignment_text
+        )
+        
+        response = self.client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+        
+        return self._parse_json_response(response.text)
+    
+    def _generate_final_assessment(self, combined_summary, requirements_text=None):
+        """Generate final assessment from combined summaries"""
+        # Format the prompt with requirements if available
+        prompt = FINAL_ASSESSMENT_PROMPT.format(
+            combined_summary=combined_summary,
+            requirements_context=f"The assignment is based on these requirements/questions:\n\n{requirements_text}\n\nWith the above requirements in mind and based on these summaries, provide a comprehensive assessment:" if requirements_text else "Based on these summaries, provide a comprehensive assessment:"
+        )
+        
+        response = self.client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+        
+        return self._parse_json_response(response.text)
+    
+    def _parse_json_response(self, response_text):
+        """Extract and parse JSON from response"""
+        json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+        if json_match:
+            json_string = json_match.group(1)
+        else:
+            json_string = response_text
+        
+        try:
+            result = json.loads(json_string)
+            return result
+        except json.JSONDecodeError:
+            st.error("Error parsing AI response. Please try again.")
+            st.code(response_text)
+            return None
+    
+    def analyze_with_file_api(self, assignment_file_path, requirements_text=None):
+        """Analyze PDF with Gemini using File API for non-extractable PDFs"""
+        try:
+            with st.spinner("Analyzing using advanced methods...", show_time=True):
+                # Upload the PDF using the File API
+                sample_file = self.client.files.upload(
+                    file=assignment_file_path,
+                )
                 
-    except Exception as e:
-        st.error(f"Error analyzing PDF: {e}")
-        return None
+                # Format prompt with requirements if available
+                prompt = FILE_API_ANALYSIS_PROMPT.format(
+                    requirements_context=f"The assignment is based on these requirements/questions:\n\n{requirements_text}\n\nWith these requirements in mind, analyze the attached student assignment PDF." if requirements_text else "Analyze the attached student assignment PDF."
+                )
+                
+                response = self.client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[sample_file, prompt]
+                )
+                
+                return self._parse_json_response(response.text)
+                
+        except Exception as e:
+            st.error(f"Error analyzing PDF with File API: {e}")
+            return None
 
-# Function to create markdown report
-def create_markdown_report(feedback_data):
-    md = f"""# Assignment Feedback Report
+
+class ReportGenerator:
+    """Generates reports and visualizations from feedback data"""
+    
+    @staticmethod
+    def create_markdown_report(feedback_data):
+        """Create markdown report from feedback data"""
+        md = f"""# Assignment Feedback Report
 
 ## {feedback_data['title']}
 
@@ -203,115 +219,20 @@ def create_markdown_report(feedback_data):
 ### Detailed Feedback
 {feedback_data['detailed_feedback']}
 """
-    return md
-
-# Main application
-def main():
-    st.title("AI PDF Feedback System")
+        return md
     
-    # Initialize session state
-    if 'feedback_data' not in st.session_state:
-        st.session_state.feedback_data = None
-    if 'pdf_text' not in st.session_state:
-        st.session_state.pdf_text = None
-    
-    # Sidebar
-    with st.sidebar:
-        st.header("Upload Assignment")
-        
-        uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
-        
-        if uploaded_file is not None:
-            # Save the uploaded file to a temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                tmp_path = tmp_file.name
-            
-            # Extract text from PDF
-            st.session_state.pdf_text = extract_text_from_pdf(tmp_path)
-            
-            if st.session_state.pdf_text:
-                st.success("PDF uploaded and text extracted successfully!")
-                
-                # Display PDF info
-                st.subheader("PDF Information")
-                word_count = len(st.session_state.pdf_text.split())
-                st.info(f"Word count: {word_count}")
-                
-                # Analyze button
-                if st.button("Analyze Assignment", type="primary"):
-                    # Initialize Gemini client
-                    client = initialize_gemini_client()
-                    
-                    # Analyze PDF
-                    st.session_state.feedback_data = analyze_pdf_with_gemini(client, st.session_state.pdf_text)
-            
-            # Clean up temporary file
-            os.unlink(tmp_path)
-        
-        st.divider()
-        st.subheader("About")
-        st.write("""
-        This AI-powered system analyzes academic assignments and provides comprehensive feedback including grading, strengths, and areas for improvement.
-        
-        Upload your PDF document and get instant, detailed feedback.
-        """)
-    
-    # Main content
-    if st.session_state.feedback_data:
-        feedback_data = st.session_state.feedback_data
-        
+    @staticmethod
+    def display_report(feedback_data):
+        """Display report in Streamlit UI"""
         # Title and Grade Display
-        col1, col2 = st.columns(2)
+        st.header(feedback_data['title'])
+        
+        # Grade and Score
+        col1, col2 = st.columns([1, 1])
         with col1:
-            st.subheader(feedback_data['title'])
+            st.metric(label="Grade", value=feedback_data['grade'])
         with col2:
-            st.metric(label="Grade", value=feedback_data['grade'], delta=f"{feedback_data['score']}/100")
-        
-        # Category Scores with Charts
-        st.subheader("Category Scores")
-        
-        # Prepare data for chart
-        categories = list(feedback_data['category_scores'].keys())
-        scores = list(feedback_data['category_scores'].values())
-        
-        # Create radar chart with Plotly
-        fig = go.Figure()
-        
-        fig.add_trace(go.Scatterpolar(
-            r=scores,
-            theta=categories,
-            fill='toself',
-            name='Assignment Score'
-        ))
-        
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 100]
-                )
-            ),
-            showlegend=False,
-            height=400,
-            margin=dict(l=80, r=80, t=20, b=20)
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Create bar chart for category scores
-        fig_bar = px.bar(
-            x=categories,
-            y=scores,
-            labels={'x': 'Category', 'y': 'Score'},
-            range_y=[0, 100]
-        )
-        fig_bar.update_layout(
-            height=300,
-            margin=dict(l=20, r=20, t=20, b=20)
-        )
-        
-        st.plotly_chart(fig_bar, use_container_width=True)
+            st.metric(label="Score", value=f"{feedback_data['score']}/100")
         
         # Summary
         st.subheader("Summary")
@@ -330,6 +251,46 @@ def main():
             for area in feedback_data['areas_for_improvement']:
                 st.warning(area)
         
+        # Category Scores with Charts
+        st.subheader("Category Scores")
+        
+        # Create flexible column layout based on number of categories
+        categories = list(feedback_data['category_scores'].keys())
+        scores = list(feedback_data['category_scores'].values())
+        
+        # Display individual category scores with progress bars
+        cols = st.columns(len(categories))
+        for i, (category, score) in enumerate(feedback_data['category_scores'].items()):
+            with cols[i]:
+                st.metric(label=category, value=f"{score}/100")
+                st.progress(score/100)
+        
+        # Create radar chart with Plotly
+        fig = go.Figure()
+        
+        fig.add_trace(go.Scatterpolar(
+            r=scores,
+            theta=categories,
+            fill='toself',
+            name='Assignment Score',
+            line=dict(color='rgba(32, 156, 238, 0.8)', width=2),
+            fillcolor='rgba(32, 156, 238, 0.3)'
+        ))
+        
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, 100]
+                )
+            ),
+            showlegend=False,
+            height=400,
+            margin=dict(l=80, r=80, t=20, b=20)
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
         # Detailed Feedback
         st.subheader("Detailed Feedback")
         st.write(feedback_data['detailed_feedback'])
@@ -337,36 +298,222 @@ def main():
         # Download options
         st.subheader("Download Report")
         
-        md_content = create_markdown_report(feedback_data)
+        md_content = ReportGenerator.create_markdown_report(feedback_data)
         st.download_button(
             label="Download as Markdown",
             data=md_content,
             file_name="assignment_feedback.md",
             mime="text/markdown"
         )
+
+
+class PDFFeedbackApp:
+    """Main application class"""
     
-    else:
-        # Display welcome message and instructions
-        st.header("📄 Welcome to the AI PDF Feedback System!")
-        st.write("""
-        🧠 This tool uses AI to analyze your academic assignments and give smart, actionable feedback.
-
-        **Get Started in 4 Easy Steps:**
+    def __init__(self):
+        """Initialize application"""
+        # Set page config
+        st.set_page_config(
+            page_title="AI PDF Feedback System",
+            page_icon="📝",
+            initial_sidebar_state="collapsed"
+        )
         
-        1️⃣ Upload your assignment PDF from the sidebar  
-        2️⃣ Click **Analyze Assignment**  
-        3️⃣ Get detailed scores, strengths & improvement tips  
-        4️⃣ Download your feedback in 📄 Markdown format
-        """)
-
-        # Sample columns layout
-        col1, col2 = st.columns(2)
+        # Initialize session state
+        if 'step' not in st.session_state:
+            st.session_state.step = 1
+        if 'assignment_file' not in st.session_state:
+            st.session_state.assignment_file = None
+        if 'requirements_file' not in st.session_state:
+            st.session_state.requirements_file = None
+        if 'assignment_text' not in st.session_state:
+            st.session_state.assignment_text = None
+        if 'requirements_text' not in st.session_state:
+            st.session_state.requirements_text = None
+        if 'feedback_data' not in st.session_state:
+            st.session_state.feedback_data = None
+        if 'temp_file_path' not in st.session_state:
+            st.session_state.temp_file_path = None
+        
+        # Initialize components
+        self.gemini = GeminiProcessor()
+    
+    def run(self):
+        """Run the application"""
+        st.title("🎓 AI PDF Feedback System")
+        
+        # Step 1: Upload assignment
+        if st.session_state.step == 1:
+            self._handle_step_1()
+        
+        # Step 2: Upload requirements (optional)
+        elif st.session_state.step == 2:
+            self._handle_step_2()
+        
+        # Step 3: Analysis
+        elif st.session_state.step == 3:
+            self._handle_step_3()
+        
+        # Step 4: Results
+        elif st.session_state.step == 4:
+            self._handle_step_4()
+    
+    def _handle_step_1(self):
+        """Handle Step 1: Upload assignment"""
+        st.header("Step 1: Upload Your Assignment")
+        
+        st.info("Upload your assignment PDF file to get feedback.")
+        
+        uploaded_file = st.file_uploader("Choose a PDF file", type="pdf", key="assignment_uploader")
+        
+        if uploaded_file is not None:
+            # Save the uploaded file to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_path = tmp_file.name
+                st.session_state.temp_file_path = tmp_path
+            
+            st.session_state.assignment_file = uploaded_file
+            
+            # Extract text from PDF
+            with st.spinner("Processing PDF...", show_time=True):
+                st.session_state.assignment_text = PDFProcessor.extract_text_from_pdf(tmp_path)
+                
+                if st.session_state.assignment_text:
+                    word_count = len(st.session_state.assignment_text.split())
+                    st.success(f"✅ PDF uploaded and processed successfully! Word count: {word_count}")
+                else:
+                    st.warning("⚠️ Could not extract text from this PDF. We'll use advanced methods to analyze it.")
+            
+            # Proceed to next step
+            if st.button("Continue to Step 2", type="primary"):
+                st.session_state.step = 2
+                st.rerun()
+    
+    def _handle_step_2(self):
+        """Handle Step 2: Upload requirements (optional)"""
+        st.header("Step 2: Upload Assignment Requirements (Optional)")
+        
+        st.info("Upload the assignment requirements or question paper to get more accurate feedback.")
+        
+        # Option to skip this step
+        col1, col2 = st.columns([1, 1])
+        
         with col1:
-            st.subheader("📤 Step 1")
-            st.write("Upload your assignment PDF")
+            requirements_option = st.radio(
+                "Do you want to provide assignment requirements?",
+                ["Yes, upload requirements", "Yes, enter requirements as text", "No, skip this step"]
+            )
+        
+        if requirements_option == "Yes, upload requirements":
+            uploaded_requirements = st.file_uploader("Choose a PDF file", type="pdf", key="requirements_uploader")
+            
+            if uploaded_requirements is not None:
+                # Save the uploaded file to a temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+                    tmp_file.write(uploaded_requirements.getvalue())
+                    tmp_req_path = tmp_file.name
+                
+                # Extract text from PDF
+                with st.spinner("Processing requirements PDF...", show_time=True):
+                    st.session_state.requirements_text = PDFProcessor.extract_text_from_pdf(tmp_req_path)
+                    
+                    if st.session_state.requirements_text:
+                        st.success("✅ Requirements PDF processed successfully!")
+                    else:
+                        st.error("❌ Could not extract text from the requirements PDF.")
+                
+                # Clean up temporary file
+                os.unlink(tmp_req_path)
+        
+        elif requirements_option == "Yes, enter requirements as text":
+            st.session_state.requirements_text = st.text_area(
+                "Enter assignment requirements or question paper:",
+                height=200
+            )
+        
+        else:
+            st.session_state.requirements_text = None
+        
+        # Navigation buttons
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            if st.button("← Back to Step 1"):
+                st.session_state.step = 1
+                st.rerun()
+        
         with col2:
-            st.subheader("⚙️ Step 2")
-            st.write("Click to analyze & receive AI feedback")
+            if st.button("Continue to Analysis →", type="primary"):
+                st.session_state.step = 3
+                st.rerun()
+    
+    def _handle_step_3(self):
+        """Handle Step 3: Analysis"""
+        st.header("Step 3: Analyzing Your Assignment")
+        
+        if st.session_state.feedback_data is None:
+            # Show analysis information
+            st.info("Our AI is analyzing your assignment. This may take a minute...")
+            
+            # Perform analysis based on text extraction success
+            if st.session_state.assignment_text:
+                # Process with extracted text
+                st.session_state.feedback_data = self.gemini.analyze_with_extracted_text(
+                    st.session_state.assignment_text,
+                    st.session_state.requirements_text
+                )
+            else:
+                # Process with file API
+                st.session_state.feedback_data = self.gemini.analyze_with_file_api(
+                    st.session_state.temp_file_path,
+                    st.session_state.requirements_text
+                )
+            
+            # Move to results
+            if st.session_state.feedback_data:
+                st.session_state.step = 4
+                st.rerun()
+            else:
+                st.error("❌ Analysis failed. Please try again.")
+                if st.button("← Back to Step 1"):
+                    st.session_state.step = 1
+                    st.rerun()
+        else:
+            # Should not reach here, but just in case
+            st.success("Analysis complete!")
+            if st.button("View Results →", type="primary"):
+                st.session_state.step = 4
+                st.rerun()
+    
+    def _handle_step_4(self):
+        """Handle Step 4: Results"""
+        st.header("Step 4: Feedback Results")
+        
+        if st.session_state.feedback_data:
+            # Display report
+            ReportGenerator.display_report(st.session_state.feedback_data)
+            
+            # Start new analysis button
+            if st.button("Start New Analysis", type="primary"):
+                # Clean up temporary file if it exists
+                if st.session_state.temp_file_path and os.path.exists(st.session_state.temp_file_path):
+                    os.unlink(st.session_state.temp_file_path)
+                
+                # Reset session state
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                
+                st.session_state.step = 1
+                st.rerun()
+        else:
+            st.error("❌ No feedback data available. Please start over.")
+            if st.button("Start Over", type="primary"):
+                st.session_state.step = 1
+                st.rerun()
 
+
+# Main entry point
 if __name__ == "__main__":
-    main()
+    app = PDFFeedbackApp()
+    app.run()
