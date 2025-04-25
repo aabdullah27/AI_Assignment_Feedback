@@ -12,6 +12,7 @@ An advanced, AI-powered system for providing comprehensive feedback on academic 
 - [Usage Guide](#usage-guide)
 - [Class Structure](#class-structure)
 - [PDF Processing Strategies](#pdf-processing-strategies)
+- [Visualization Options](#visualization-options)
 - [Customization](#customization)
 - [Environmental Variables](#environmental-variables)
 - [Troubleshooting](#troubleshooting)
@@ -30,7 +31,7 @@ The AI PDF Feedback System is a Streamlit-based application that leverages Googl
 - **Dual Document Analysis**: Evaluates student assignments against provided requirements/question papers
 - **Smart PDF Handling**: Automatically detects and handles both extractable and non-extractable PDFs
 - **Step-by-Step Interface**: Intuitive wizard-like user experience
-- **Advanced Visualization**: Interactive radar charts and progress bars for category scores
+- **Advanced Visualizations**: Interactive bar charts, pie charts, and performance comparisons
 - **Comprehensive Reports**: Detailed feedback with strengths and areas for improvement
 - **Downloadable Reports**: Export feedback as Markdown files
 - **Long Document Processing**: Efficiently handles documents of any length through intelligent chunking
@@ -94,7 +95,8 @@ flowchart TB
     
     Requirements --> Analysis[AI Analysis]
     Analysis --> Results[Display Results]
-    Results --> Download[Download Report]
+    Results --> Visualize[Choose Visualization Type]
+    Visualize --> Download[Download Report]
     
     Download --> NewAnalysis{New Analysis?}
     NewAnalysis -->|Yes| Upload
@@ -149,9 +151,10 @@ flowchart TB
 
 1. View the comprehensive feedback with grade and score
 2. Explore strengths and areas for improvement
-3. Analyze category scores through interactive visualizations
-4. Download the report in Markdown format
-5. Start a new analysis if needed
+3. Select your preferred visualization type (Bar Chart or Pie Chart)
+4. Analyze category scores through interactive visualizations
+5. Download the report in Markdown format
+6. Start a new analysis if needed
 
 ## 🧩 Class Structure
 
@@ -188,7 +191,7 @@ Manages all interactions with the Gemini AI:
 Creates and displays feedback reports:
 
 - **create_markdown_report()**: Generates downloadable reports
-- **display_report()**: Renders interactive reports in the UI
+- **display_report()**: Renders interactive reports and visualizations in the UI
 
 ## 📄 PDF Processing Strategies
 
@@ -227,6 +230,34 @@ flowchart LR
 2. Upload the entire PDF to Gemini using File API
 3. Process the document directly within Gemini
 
+## 📊 Visualization Options
+
+The system offers multiple visualization options to better understand assessment results:
+
+### Bar Chart Visualization
+- Vertical bar chart showing scores for each category
+- Clear visual comparison across all assessment categories
+- Score labels displayed directly on bars
+- Custom styling with consistent color theme
+
+### Pie Chart Visualization
+Features two complementary charts:
+1. **Distribution Pie Chart**:
+   - Shows proportional distribution of scores across categories
+   - Highlights highest-scoring category with a slight "pull" effect
+   - Displays category names and percentage distribution
+   - Color-coded segments for better visual distinction
+
+2. **Performance Comparison Chart**:
+   - Horizontal bar chart showing scores sorted from lowest to highest
+   - Traffic light color-coding system:
+     - Red: Scores below 60%
+     - Yellow: Scores between 60% and 75%
+     - Green: Scores above 75%
+   - Allows instant identification of strengths and weaknesses
+
+Users can toggle between visualization options using the radio button selector in the results view.
+
 ## 🛠️ Customization
 
 ### Modifying Prompts
@@ -244,6 +275,15 @@ The default categories (Content, Structure, Analysis, Language, References) can 
 
 1. Updating the prompt templates in `assets/prompt.py`
 2. Adjusting the visualization code in the `ReportGenerator` class
+
+### Customizing Visualizations
+
+The visualization system is flexible and can be customized:
+
+1. Adjust color schemes in the Plotly chart configurations
+2. Modify chart dimensions and layouts
+3. Add new visualization types by extending the `display_report()` method
+4. Customize tooltip content and formatting
 
 ### Adding New Features
 
@@ -281,6 +321,10 @@ The following environment variables are used:
 - **Cause**: Large documents or slow network connection
 - **Solution**: Optimize chunk size or upgrade to a faster internet connection
 
+#### Visualization Not Rendering
+- **Cause**: JavaScript disabled or browser compatibility issues
+- **Solution**: Enable JavaScript or try a different browser
+
 ## 🚀 Advanced Configuration
 
 ### Performance Tuning
@@ -294,6 +338,19 @@ max_chunk_size = 8000  # Default value
 
 - Decrease for faster processing but potentially less coherent analysis
 - Increase for more coherent analysis but slower processing
+
+### Visualization Customization
+
+Fine-tune visualization parameters for your specific needs:
+
+```python
+# In ReportGenerator.display_report
+fig.update_layout(
+    height=400,  # Adjust chart height
+    margin=dict(l=20, r=20, t=40, b=20),  # Adjust margins
+    plot_bgcolor='rgba(0,0,0,0.02)'  # Customize background
+)
+```
 
 ### Deployment Options
 
